@@ -99,12 +99,15 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
 
       var colorlessUtxos = root._rejectColoredUtxos(utxos, assets);
 
-      for (var i = 0; i < colorlessUtxos.length; i++) {
-        if (colorlessUtxos[i].satoshis >= fee) {
-          return cb(null, colorlessUtxos[i]);
-        }
+      var selected = lodash.find(colorlessUtxos, function(u) {
+        return u.satoshis >= fee;
+      });
+
+      if (!selected) {
+        return cb({ error: "Insufficient funds for a fee" });
       }
-      return cb({ error: "Insufficient funds for fee" });
+
+      return cb(null, selected);
     });
   };
 
