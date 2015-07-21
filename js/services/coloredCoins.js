@@ -85,14 +85,19 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
     });
   };
 
+  root._rejectColoredUtxos = function(utxos, assets) {
+    var coloredUtxos = lodash.map(assets, function(a) { return a.asset.utxo.txid + ":" + a.asset.utxo.index; });
+
+    return lodash.reject(utxos, function(utxo) {
+      return lodash.includes(coloredUtxos, utxo.txid + ":" + utxo.vout);
+    });
+  };
+
   var selectFinanceOutput = function(fee, fc, assets, cb) {
     fc.getUtxos(function(err, utxos) {
       if (err) { return cb(err); }
-      var coloredUtxos = lodash.map(assets, function(a) { return a.asset.utxo.txid + ":" + a.asset.utxo.index; });
 
-      var colorlessUtxos = lodash.reject(utxos, function(utxo) {
-        return lodash.includes(coloredUtxos, utxo.txid + ":" + utxo.vout);
-      });
+      var colorlessUtxos = root._rejectColoredUtxos(utxos, assets);
 
       for (var i = 0; i < colorlessUtxos.length; i++) {
         if (colorlessUtxos[i].satoshis >= fee) {
@@ -122,8 +127,6 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
           asset.metadata = metadata;
           assets.push(asset);
           if (assetsInfo.length == assets.length) {
-            console.log("Assets for address: " + address);
-            console.log(assets);
             return cb(assets);
           }
         });
@@ -140,7 +143,7 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
   };
 
   root.createTransferTx = function(asset, amount, toAddress, assets, cb) {
-    if (amount > asset.asset.amount) {
+    if (amount > asset.amount) {
       return cb({ error: "Cannot transfer more assets then available" }, null);
     }
 
@@ -191,7 +194,7 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
         financeOutputTxid: financeUtxo.txid
       };
 
-      console.log(JSON.stringify(transfer, null, 2));
+      $log.debug(JSON.stringify(transfer, null, 2));
       var network = fc.credentials.network;
       postTo('sendasset', transfer, network, cb);
     });
