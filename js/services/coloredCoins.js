@@ -52,23 +52,27 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
         });
   };
 
-  var extractAssets = function(body) {
-    var assets = [];
-    if (!body.utxos || body.utxos.length == 0) return assets;
+  var extractAssets = function(utxos, address) {
+    var assets = {};
+    if (!utxos || utxos.length == 0) return assets;
 
-    body.utxos.forEach(function(utxo) {
+    utxos.forEach(function(utxo) {
       if (utxo.assets || utxo.assets.length > 0) {
         utxo.assets.forEach(function(asset) {
-          assets.push({ assetId: asset.assetId, amount: asset.amount, utxo: lodash.pick(utxo, [ 'txid', 'index', 'value', 'scriptPubKey']) });
+          var assetList = assets[asset.assetId] || (assets[asset.assetId] = { assetId: asset.assetId, amount: 0, utxos: [] });
+          var assetUtxo = lodash.pick(utxo, [ 'txid', 'index', 'value', 'scriptPubKey']);
+          lodash.assign(assetUtxo, { amount: asset.amount, address: address })
+          assetList.utxos.push(assetUtxo);
+          assetList.amount += asset.amount;
         });
       }
     });
 
-    return assets;
+    return lodash.values(assets);
   };
 
   var getMetadata = function(asset, network, cb) {
-    getFrom('assetmetadata', asset.assetId + "/" + asset.utxo.txid + ":" + asset.utxo.index, network, function(err, body){
+    getFrom('assetmetadata', asset.assetId + "/" + asset.utxos[0].txid + ":" + asset.utxos[0].index, network, function(err, body){
       if (err) { return cb(err); }
       return cb(null, body.metadataOfIssuence);
     });
@@ -77,7 +81,7 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
   var getAssetsByAddress = function(address, network, cb) {
     getFrom('addressinfo', address, network, function(err, body) {
       if (err) { return cb(err); }
-      return cb(null, extractAssets(body));
+      return cb(null, extractAssets(body.utxos, address));
     });
   };
 
@@ -115,8 +119,11 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
       var assets = [];
       assetsInfo.forEach(function(asset) {
         getMetadata(asset, network, function(err, metadata) {
-          assets.push({ address: address, asset: asset, metadata: metadata });
+          asset.metadata = metadata;
+          assets.push(asset);
           if (assetsInfo.length == assets.length) {
+            console.log("Assets for address: " + address);
+            console.log(assets);
             return cb(assets);
           }
         });

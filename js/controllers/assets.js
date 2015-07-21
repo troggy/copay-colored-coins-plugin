@@ -19,14 +19,24 @@ angular.module('copayAddon.coloredCoins').controller('assetsController', functio
     }
 
     var checkedAddresses = 0;
+    var assetsById = {};
     balance.byAddress.forEach(function (ba) {
       coloredCoins.getAssets(ba.address, function (assets) {
-        self.assets = self.assets.concat(assets);
         lodash.each(assets, function(a) {
-          a.asset.utxo.path = addressToPath[ba.address];
-          UTXOList.add(a.asset.utxo.txid, a.asset.utxo);
+          var asset = assetsById[a.assetId];
+          if (asset) {
+            asset.amount += a.amount;
+            asset.utxos = asset.utxos.concat(a.utxos);
+          } else {
+            assetsById[a.assetId] = a;
+          }
+          lodash.each(a.utxos, function(utxo) {
+            utxo.path = addressToPath[ba.address];
+            UTXOList.add(utxo.txid, utxo);
+          });
         });
         if (++checkedAddresses == balance.byAddress.length) {
+          self.assets = lodash.values(assetsById);
           self.setOngoingProcess();
         }
       })

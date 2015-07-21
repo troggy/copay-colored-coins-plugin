@@ -37,14 +37,24 @@ angular.module('copayAddon.coloredCoins').controller('assetsController', functio
     }
 
     var checkedAddresses = 0;
+    var assetsById = {};
     balance.byAddress.forEach(function (ba) {
       coloredCoins.getAssets(ba.address, function (assets) {
-        self.assets = self.assets.concat(assets);
         lodash.each(assets, function(a) {
-          a.asset.utxo.path = addressToPath[ba.address];
-          UTXOList.add(a.asset.utxo.txid, a.asset.utxo);
+          var asset = assetsById[a.assetId];
+          if (asset) {
+            asset.amount += a.amount;
+            asset.utxos = asset.utxos.concat(a.utxos);
+          } else {
+            assetsById[a.assetId] = a;
+          }
+          lodash.each(a.utxos, function(utxo) {
+            utxo.path = addressToPath[ba.address];
+            UTXOList.add(utxo.txid, utxo);
+          });
         });
         if (++checkedAddresses == balance.byAddress.length) {
+          self.assets = lodash.values(assetsById);
           self.setOngoingProcess();
         }
       })
@@ -207,8 +217,6 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
   var config = (configService.getSync()['coloredCoins'] || defaultConfig),
       root = {};
 
-
-
   var apiHost = function(network) {
     if (!config['api'] || ! config['api'][network]) {
       return defaultConfig.api[network];
@@ -249,23 +257,27 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
         });
   };
 
-  var extractAssets = function(body) {
-    var assets = [];
-    if (!body.utxos || body.utxos.length == 0) return assets;
+  var extractAssets = function(utxos, address) {
+    var assets = {};
+    if (!utxos || utxos.length == 0) return assets;
 
-    body.utxos.forEach(function(utxo) {
+    utxos.forEach(function(utxo) {
       if (utxo.assets || utxo.assets.length > 0) {
         utxo.assets.forEach(function(asset) {
-          assets.push({ assetId: asset.assetId, amount: asset.amount, utxo: lodash.pick(utxo, [ 'txid', 'index', 'value', 'scriptPubKey']) });
+          var assetList = assets[asset.assetId] || (assets[asset.assetId] = { assetId: asset.assetId, amount: 0, utxos: [] });
+          var assetUtxo = lodash.pick(utxo, [ 'txid', 'index', 'value', 'scriptPubKey']);
+          lodash.assign(assetUtxo, { amount: asset.amount, address: address })
+          assetList.utxos.push(assetUtxo);
+          assetList.amount += asset.amount;
         });
       }
     });
 
-    return assets;
+    return lodash.values(assets);
   };
 
   var getMetadata = function(asset, network, cb) {
-    getFrom('assetmetadata', asset.assetId + "/" + asset.utxo.txid + ":" + asset.utxo.index, network, function(err, body){
+    getFrom('assetmetadata', asset.assetId + "/" + asset.utxos[0].txid + ":" + asset.utxos[0].index, network, function(err, body){
       if (err) { return cb(err); }
       return cb(null, body.metadataOfIssuence);
     });
@@ -274,7 +286,7 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
   var getAssetsByAddress = function(address, network, cb) {
     getFrom('addressinfo', address, network, function(err, body) {
       if (err) { return cb(err); }
-      return cb(null, extractAssets(body));
+      return cb(null, extractAssets(body.utxos, address));
     });
   };
 
@@ -312,8 +324,11 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
       var assets = [];
       assetsInfo.forEach(function(asset) {
         getMetadata(asset, network, function(err, metadata) {
-          assets.push({ address: address, asset: asset, metadata: metadata });
+          asset.metadata = metadata;
+          assets.push(asset);
           if (assetsInfo.length == assets.length) {
+            console.log("Assets for address: " + address);
+            console.log(assets);
             return cb(assets);
           }
         });
@@ -469,7 +484,7 @@ angular.module("colored-coins/views/assets.html", []).run(["$templateCache", fun
     "        </div>\n" +
     "        <div class=\"small-2 columns\">\n" +
     "          <span class=\"size-16\">\n" +
-    "            {{ asset.asset.amount }} unit{{ asset.asset.amount != 1 ? 's' : '' }}\n" +
+    "            {{ asset.amount }} unit{{ asset.amount != 1 ? 's' : '' }}\n" +
     "          </span>\n" +
     "        </div>\n" +
     "        <div class=\"small-4 columns\">\n" +
@@ -524,7 +539,7 @@ angular.module("colored-coins/views/modals/asset-details.html", []).run(["$templ
     "        <li class=\"line-b p10 oh\">\n" +
     "            <span class=\"text-gray\" translate>Amount</span>:\n" +
     "    <span class=\"right\">\n" +
-    "      <time>{{ asset.asset.amount }}</time>\n" +
+    "      <time>{{ asset.amount }}</time>\n" +
     "    </span>\n" +
     "        </li>\n" +
     "        <li class=\"line-b p10 oh\">\n" +
