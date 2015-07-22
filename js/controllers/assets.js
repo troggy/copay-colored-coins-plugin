@@ -108,24 +108,29 @@ angular.module('copayAddon.coloredCoins').controller('assetsController', functio
           return;
         }
 
-        setOngoingProcess(gettext('Creating transfer transaction'));
-        coloredCoins.createTransferTxs(asset, transfer._amount, transfer._address, self.assets, function(err, result) {
+        setOngoingProcess(gettext('Creating transfer transactions'));
+        coloredCoins.createTransferTxs(asset, transfer._amount, transfer._address, self.assets, function(err, transferTxs) {
           if (err) { return handleTransferError(err); }
 
-          lodash.each(result, function(transferTx) {
+          var currTx = 1;
+          var totalTxs = transferTxs.length;
+          var broadcasted = 0;
+          lodash.each(transferTxs, function(transferTx) {
             var tx = new bitcore.Transaction(transferTx.txHex);
             $log.debug(JSON.stringify(tx.toObject(), null, 2));
 
-            return;
-
-            setOngoingProcess(gettext('Signing transaction'));
+            setOngoingProcess(gettext('Signing transaction ' + currTx + " of " + totalTxs));
             externalTxSigner.sign(tx, fc.credentials);
 
-            setOngoingProcess(gettext('Broadcasting transaction'));
+            setOngoingProcess(gettext('Broadcasting transaction ' + currTx + " of " + totalTxs));
             coloredCoins.broadcastTx(tx.uncheckedSerialize(), function(err, body) {
               if (err) { return handleTransferError(err); }
-              $scope.cancel();
-              $rootScope.$emit('NewOutgoingTx');
+              $log.debug("Tx " + currTx + " has been broadcasted");
+              broadcasted++;
+              if (broadcasted == totalTxs) {
+                $scope.cancel();
+                $rootScope.$emit('NewOutgoingTx');
+              }
             });
           });
         });

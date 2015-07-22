@@ -126,24 +126,29 @@ angular.module('copayAddon.coloredCoins').controller('assetsController', functio
           return;
         }
 
-        setOngoingProcess(gettext('Creating transfer transaction'));
-        coloredCoins.createTransferTxs(asset, transfer._amount, transfer._address, self.assets, function(err, result) {
+        setOngoingProcess(gettext('Creating transfer transactions'));
+        coloredCoins.createTransferTxs(asset, transfer._amount, transfer._address, self.assets, function(err, transferTxs) {
           if (err) { return handleTransferError(err); }
 
-          lodash.each(result, function(transferTx) {
+          var currTx = 1;
+          var totalTxs = transferTxs.length;
+          var broadcasted = 0;
+          lodash.each(transferTxs, function(transferTx) {
             var tx = new bitcore.Transaction(transferTx.txHex);
             $log.debug(JSON.stringify(tx.toObject(), null, 2));
 
-            return;
-
-            setOngoingProcess(gettext('Signing transaction'));
+            setOngoingProcess(gettext('Signing transaction ' + currTx + " of " + totalTxs));
             externalTxSigner.sign(tx, fc.credentials);
 
-            setOngoingProcess(gettext('Broadcasting transaction'));
+            setOngoingProcess(gettext('Broadcasting transaction ' + currTx + " of " + totalTxs));
             coloredCoins.broadcastTx(tx.uncheckedSerialize(), function(err, body) {
               if (err) { return handleTransferError(err); }
-              $scope.cancel();
-              $rootScope.$emit('NewOutgoingTx');
+              $log.debug("Tx " + currTx + " has been broadcasted");
+              broadcasted++;
+              if (broadcasted == totalTxs) {
+                $scope.cancel();
+                $rootScope.$emit('NewOutgoingTx');
+              }
             });
           });
         });
@@ -209,7 +214,7 @@ angular.module('copayAddon.coloredCoins').service('UTXOList', function() {
 });
 'use strict';
 
-function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $log, lodash) {
+function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $log, $q, lodash) {
   var defaultConfig = {
     fee: 1000,
     api: {
@@ -383,33 +388,38 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
     fc.getUtxos(function(err, utxos) {
       if (err) { return cb(err); }
 
+      var fee = root.defaultFee();
+
       var leftToTransfer = amount;
+
+      // collect transfer tx in array to preserve order
       var transfers = [];
       lodash.each(assetUtxos, function(assetUtxo) {
         var amountToTransfer = leftToTransfer > assetUtxo.amount ? assetUtxo.amount : leftToTransfer;
         leftToTransfer -= amountToTransfer;
-
-        var fee = root.defaultFee();
 
         var financeUtxo = root._selectFinanceOutput(fee, fc, assets, utxos);
         if (!financeUtxo) {
           return cb({ error: "Insufficient funds for a fee" });
         }
 
-        root._createTransferTx(asset.assetId, amountToTransfer, assetUtxo, toAddress, assets, financeUtxo, fee, function(err, tx) {
-          if (err) { return cb(err); }
-          transfers.push(tx);
-          if (transfers.length == assetUtxos.length) {
-            return cb(null, transfers);
-          }
-        });
+        var transferPromise = root._createTransferTx(asset.assetId, amountToTransfer, assetUtxo, toAddress, assets, financeUtxo, fee);
+        transfers.push(transferPromise);
         financeUtxo.satoshis -= fee;
       });
+
+      // wait for all transfer tx to be created
+      $q.all(transfers).then(function(transfers) {
+        return cb(null, transfers);
+      }, function(err) {
+        return cb({ error: err });
+      })
     });
   };
 
-  root._createTransferTx = function(assetId, amountToTransfer, assetUtxo, toAddress, assets, financeUtxo, fee, cb) {
-    var fc = profileService.focusedClient;
+  root._createTransferTx = function(assetId, amountToTransfer, assetUtxo, toAddress, assets, financeUtxo, fee) {
+    var fc = profileService.focusedClient,
+        result = $q.defer();
 
     var to = [{
       "address": toAddress,
@@ -454,7 +464,11 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
 
     $log.debug(JSON.stringify(transfer, null, 2));
     var network = fc.credentials.network;
-    postTo('sendasset', transfer, network, cb);
+    postTo('sendasset', transfer, network, function(err, tx) {
+      if (err) { result.reject(err); }
+      result.resolve(tx);
+    });
+    return result.promise;
   };
 
   return root;
