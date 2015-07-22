@@ -107,6 +107,26 @@ angular.module('copayAddon.coloredCoins').controller('assetsController', functio
         return setTransferError(err);
       };
 
+      var signAndBroadcast = function(txIndex, txs, cb) {
+        var totalTxs = txs.length;
+        if (txIndex >= totalTxs - 1) {
+          return cb();
+        }
+
+        var tx = new bitcore.Transaction(txs[txIndex].txHex);
+        $log.debug(JSON.stringify(tx.toObject(), null, 2));
+
+        setOngoingProcess(gettext('Signing transaction ' + (txIndex + 1) + " of " + totalTxs));
+        externalTxSigner.sign(tx, fc.credentials);
+
+        setOngoingProcess(gettext('Broadcasting transaction ' + (txIndex + 1) + " of " + totalTxs));
+        coloredCoins.broadcastTx(tx.uncheckedSerialize(), function(err, body) {
+          if (err) { return handleTransferError(err); }
+          $log.debug("Tx " + (txIndex + 1) + " has been broadcasted");
+          signAndBroadcast(++txIndex, txs, cb);
+        });
+      };
+
       $scope.transferAsset = function(transfer, form) {
         $log.debug(asset);
         $log.debug(transfer);
@@ -130,26 +150,9 @@ angular.module('copayAddon.coloredCoins').controller('assetsController', functio
         coloredCoins.createTransferTxs(asset, transfer._amount, transfer._address, self.assets, function(err, transferTxs) {
           if (err) { return handleTransferError(err); }
 
-          var currTx = 1;
-          var totalTxs = transferTxs.length;
-          var broadcasted = 0;
-          lodash.each(transferTxs, function(transferTx) {
-            var tx = new bitcore.Transaction(transferTx.txHex);
-            $log.debug(JSON.stringify(tx.toObject(), null, 2));
-
-            setOngoingProcess(gettext('Signing transaction ' + currTx + " of " + totalTxs));
-            externalTxSigner.sign(tx, fc.credentials);
-
-            setOngoingProcess(gettext('Broadcasting transaction ' + currTx + " of " + totalTxs));
-            coloredCoins.broadcastTx(tx.uncheckedSerialize(), function(err, body) {
-              if (err) { return handleTransferError(err); }
-              $log.debug("Tx " + currTx + " has been broadcasted");
-              broadcasted++;
-              if (broadcasted == totalTxs) {
-                $scope.cancel();
-                $rootScope.$emit('NewOutgoingTx');
-              }
-            });
+          signAndBroadcast(0, transferTxs, function() {
+            $scope.cancel();
+            $rootScope.$emit('NewOutgoingTx');
           });
         });
       };
