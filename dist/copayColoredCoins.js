@@ -388,18 +388,27 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
       lodash.each(assetUtxos, function(assetUtxo) {
         var amountToTransfer = leftToTransfer > assetUtxo.amount ? assetUtxo.amount : leftToTransfer;
         leftToTransfer -= amountToTransfer;
-        root._createTransferTx(asset.assetId, amountToTransfer, assetUtxo, toAddress, assets, utxos, function(err, tx) {
+
+        var fee = root.defaultFee();
+
+        var financeUtxo = root._selectFinanceOutput(fee, fc, assets, utxos);
+        if (!financeUtxo) {
+          return cb({ error: "Insufficient funds for a fee" });
+        }
+
+        root._createTransferTx(asset.assetId, amountToTransfer, assetUtxo, toAddress, assets, financeUtxo, fee, function(err, tx) {
           if (err) { return cb(err); }
           transfers.push(tx);
           if (transfers.length == assetUtxos.length) {
             return cb(null, transfers);
           }
-        })
+        });
+        financeUtxo.satoshis -= fee;
       });
     });
   };
 
-  root._createTransferTx = function(assetId, amountToTransfer, assetUtxo, toAddress, assets, utxos, cb) {
+  root._createTransferTx = function(assetId, amountToTransfer, assetUtxo, toAddress, assets, financeUtxo, fee, cb) {
     var fc = profileService.focusedClient;
 
     var to = [{
@@ -415,13 +424,6 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
         "amount": assetUtxo.amount - amountToTransfer,
         "assetId": assetId
       });
-    }
-
-    var fee = root.defaultFee();
-
-    var financeUtxo = root._selectFinanceOutput(fee, fc, assets, utxos);
-    if (!financeUtxo) {
-      return cb({ error: "Insufficient funds for a fee" });
     }
 
     UTXOList.add(financeUtxo.txid, {
