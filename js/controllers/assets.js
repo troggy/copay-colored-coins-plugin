@@ -89,29 +89,49 @@ angular.module('copayAddon.coloredCoins').controller('assetsController', functio
         return setTransferError(err);
       };
 
-      var signAndBroadcast = function(txIndex, txs, cb) {
-        var totalTxs = txs.length;
-        if (txIndex >= totalTxs - 1) {
+      var spendAssetUtxos = function(to, assetUtxos, leftToTransfer, totalTxs, cb) {
+        if (assetUtxos.length == 0 || leftToTransfer == 0) {
           return cb();
         }
+        var assetUtxo = lodash.first(assetUtxos);
+        var amountToTransfer = leftToTransfer > assetUtxo.amount ? assetUtxo.amount : leftToTransfer;
+        var currTxIndex = totalTxs - assetUtxos.length;
 
-        var tx = new bitcore.Transaction(txs[txIndex].txHex);
+        setOngoingProcess(gettext('Creating transfer transaction ' + (txIndex + 1) + " of " + totalTxs));
+
+        coloredCoins.createTransferTx(asset.assetId, amountToTransfer, assetUtxo, to, self.assets, function(err, transferTx) {
+          if (err) { return handleTransferError(err); }
+
+          signAndBroadcast(transferTx, currTxIndex, totalTxs, function(err, done) {
+            if (err) { return cb(err); }
+            leftToTransfer -= amountToTransfer;
+            spendAssetUtxos(to, lodash.rest(assetUtxos), leftToTransfer, totalTxs, cb);
+          });
+        });
+      };
+
+      var signAndBroadcast = function(txData, txIndex, totalTxs, cb) {
+        var fc = profileService.focusedClient;
+        var tx = new bitcore.Transaction(txData.txHex);
         $log.debug(JSON.stringify(tx.toObject(), null, 2));
 
         setOngoingProcess(gettext('Signing transaction ' + (txIndex + 1) + " of " + totalTxs));
+        return;
         externalTxSigner.sign(tx, fc.credentials);
 
+
         setOngoingProcess(gettext('Broadcasting transaction ' + (txIndex + 1) + " of " + totalTxs));
-        coloredCoins.broadcastTx(tx.uncheckedSerialize(), function(err, body) {
-          if (err) { return handleTransferError(err); }
-          $log.debug("Tx " + (txIndex + 1) + " has been broadcasted");
-          signAndBroadcast(++txIndex, txs, cb);
-        });
+        coloredCoins.broadcastTx(tx.uncheckedSerialize(), cb);
       };
 
       $scope.transferAsset = function(transfer, form) {
         $log.debug(asset);
         $log.debug(transfer);
+
+        if (transfer.amount > asset.amount) {
+          this.error = gettext('Cannot transfer more assets then available');
+          return;
+        }
 
         var fc = profileService.focusedClient;
 
@@ -128,14 +148,11 @@ angular.module('copayAddon.coloredCoins').controller('assetsController', functio
           return;
         }
 
-        setOngoingProcess(gettext('Creating transfer transactions'));
-        coloredCoins.createTransferTxs(asset, transfer._amount, transfer._address, self.assets, function(err, transferTxs) {
-          if (err) { return handleTransferError(err); }
+        var assetUtxos = coloredCoins._selectAssetUtxos(transfer._amount, asset.utxos);
 
-          signAndBroadcast(0, transferTxs, function() {
-            $scope.cancel();
-            $rootScope.$emit('NewOutgoingTx');
-          });
+        spendAssetUtxos(transfer._address, assetUtxos, transfer._amount, assetUtxos.length, function() {
+          $scope.cancel();
+          $rootScope.$emit('NewOutgoingTx');
         });
       };
     };

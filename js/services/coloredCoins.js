@@ -111,7 +111,7 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
     return selected;
   };
 
-  root._selectAssetUtxos = function(amount, utxos) {
+  root.selectAssetUtxos = function(amount, utxos) {
     // sort by amount descending
     utxos = lodash.sortBy(utxos, function(utxo) { return -utxo.amount; });
 
@@ -162,48 +162,7 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
     postTo('broadcast', { txHex: txHex }, network, cb);
   };
 
-  root.createTransferTxs = function(asset, amount, toAddress, assets, cb) {
-    if (amount > asset.amount) {
-      return cb({ error: "Cannot transfer more assets then available" }, null);
-    }
-
-    var assetUtxos = root._selectAssetUtxos(amount, asset.utxos);
-
-    var fc = profileService.focusedClient;
-
-    fc.getUtxos(function(err, utxos) {
-      if (err) { return cb(err); }
-
-      var fee = root.defaultFee();
-
-      var leftToTransfer = amount;
-
-      // collect transfer tx in array to preserve order
-      var transfers = [];
-      lodash.each(assetUtxos, function(assetUtxo) {
-        var amountToTransfer = leftToTransfer > assetUtxo.amount ? assetUtxo.amount : leftToTransfer;
-        leftToTransfer -= amountToTransfer;
-
-        var financeUtxo = root._selectFinanceOutput(fee, fc, assets, utxos);
-        if (!financeUtxo) {
-          return cb({ error: "Insufficient funds for a fee" });
-        }
-
-        var transferPromise = root._createTransferTx(asset.assetId, amountToTransfer, assetUtxo, toAddress, assets, financeUtxo, fee);
-        transfers.push(transferPromise);
-        financeUtxo.satoshis -= fee;
-      });
-
-      // wait for all transfer tx to be created
-      $q.all(transfers).then(function(transfers) {
-        return cb(null, transfers);
-      }, function(err) {
-        return cb({ error: err });
-      })
-    });
-  };
-
-  root._createTransferTx = function(assetId, amountToTransfer, assetUtxo, toAddress, assets, financeUtxo, fee) {
+  root.createTransferTx = function(assetId, amountToTransfer, assetUtxo, toAddress, assets, fee) {
     var fc = profileService.focusedClient,
         result = $q.defer();
 
@@ -222,39 +181,46 @@ function ColoredCoins(profileService, configService, bitcore, UTXOList, $http, $
       });
     }
 
-    UTXOList.add(financeUtxo.txid, {
-      txid: financeUtxo.txid, path: financeUtxo.path, index: financeUtxo.vout,
-      value: financeUtxo.satoshis, publicKeys: financeUtxo.publicKeys,
-      scriptPubKey: {
-        hex: financeUtxo.scriptPubKey,
-        reqSigs: fc.credentials.m
+    fc.getUtxos(function(err, utxos) {
+      if (err) { return cb(err); }
+
+      var fee = root.defaultFee();
+
+      var financeUtxo = root._selectFinanceOutput(fee, fc, assets, utxos);
+      if (!financeUtxo) {
+        return cb({ error: "Insufficient funds for a fee" });
       }
-    });
 
-    var transfer = {
-      from: assetUtxo.address,
-      //sendutxo: assetUtxo.txid + ":" + assetUtxo.index,
-      fee: fee,
-      to: to,
-      financeOutput: {
-        value: financeUtxo.satoshis,
-        n: financeUtxo.vout,
+      UTXOList.add(financeUtxo.txid, {
+        txid: financeUtxo.txid, path: financeUtxo.path, index: financeUtxo.vout,
+        value: financeUtxo.satoshis, publicKeys: financeUtxo.publicKeys,
         scriptPubKey: {
-          asm: new bitcore.Script(financeUtxo.scriptPubKey).toString(),
           hex: financeUtxo.scriptPubKey,
-          type: 'scripthash'
+          reqSigs: fc.credentials.m
         }
-      },
-      financeOutputTxid: financeUtxo.txid
-    };
+      });
 
-    $log.debug(JSON.stringify(transfer, null, 2));
-    var network = fc.credentials.network;
-    postTo('sendasset', transfer, network, function(err, tx) {
-      if (err) { result.reject(err); }
-      result.resolve(tx);
+      var transfer = {
+        from: assetUtxo.address,
+        //sendutxo: assetUtxo.txid + ":" + assetUtxo.index,
+        fee: fee,
+        to: to,
+        financeOutput: {
+          value: financeUtxo.satoshis,
+          n: financeUtxo.vout,
+          scriptPubKey: {
+            asm: new bitcore.Script(financeUtxo.scriptPubKey).toString(),
+            hex: financeUtxo.scriptPubKey,
+            type: 'scripthash'
+          }
+        },
+        financeOutputTxid: financeUtxo.txid
+      };
+
+      $log.debug(JSON.stringify(transfer, null, 2));
+      var network = fc.credentials.network;
+      postTo('sendasset', transfer, network, cb);
     });
-    return result.promise;
   };
 
   return root;
