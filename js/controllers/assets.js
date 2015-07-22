@@ -90,8 +90,8 @@ angular.module('copayAddon.coloredCoins').controller('assetsController', functio
       };
 
       $scope.transferAsset = function(transfer, form) {
-        $log.debug("Asset: " + asset);
-        $log.debug("Transfer: " + transfer);
+        $log.debug(asset);
+        $log.debug(transfer);
 
         var fc = profileService.focusedClient;
 
@@ -109,20 +109,24 @@ angular.module('copayAddon.coloredCoins').controller('assetsController', functio
         }
 
         setOngoingProcess(gettext('Creating transfer transaction'));
-        coloredCoins.createTransferTx(asset, transfer._amount, transfer._address, self.assets, function(err, result) {
+        coloredCoins.createTransferTxs(asset, transfer._amount, transfer._address, self.assets, function(err, result) {
           if (err) { return handleTransferError(err); }
 
-          var tx = new bitcore.Transaction(result.txHex);
-          $log.debug(JSON.stringify(tx.toObject(), null, 2));
+          lodash.each(result, function(transferTx) {
+            var tx = new bitcore.Transaction(transferTx.txHex);
+            $log.debug(JSON.stringify(tx.toObject(), null, 2));
 
-          setOngoingProcess(gettext('Signing transaction'));
-          externalTxSigner.sign(tx, fc.credentials);
+            return;
 
-          setOngoingProcess(gettext('Broadcasting transaction'));
-          coloredCoins.broadcastTx(tx.uncheckedSerialize(), function(err, body) {
-            if (err) { return handleTransferError(err); }
-            $scope.cancel();
-            $rootScope.$emit('NewOutgoingTx');
+            setOngoingProcess(gettext('Signing transaction'));
+            externalTxSigner.sign(tx, fc.credentials);
+
+            setOngoingProcess(gettext('Broadcasting transaction'));
+            coloredCoins.broadcastTx(tx.uncheckedSerialize(), function(err, body) {
+              if (err) { return handleTransferError(err); }
+              $scope.cancel();
+              $rootScope.$emit('NewOutgoingTx');
+            });
           });
         });
       };
