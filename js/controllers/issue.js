@@ -1,10 +1,11 @@
 'use strict';
 
 var AssetIssueController = function ($rootScope, $scope, $modalInstance, $timeout, $log, coloredCoins, gettext,
-                                     profileService, feeService, lodash, bitcore, txStatus, ccConfig, Upload, ccFeeService, configService) {
+                                     profileService, feeService, lodash, bitcore, txStatus, ccConfig, Upload,
+                                     ccFeeService, configService, insight) {
 
   ProcessingTxController.call(this, $rootScope, $scope, $timeout, $log, coloredCoins, gettext, profileService, feeService,
-      lodash, bitcore, txStatus, $modalInstance);
+      lodash, bitcore, txStatus, $modalInstance, insight);
 
   var self = this;
 
@@ -38,15 +39,16 @@ var AssetIssueController = function ($rootScope, $scope, $modalInstance, $timeou
         self._handleError(err);
       }
 
-      var customData = {
-        asset: {
-          action: 'issue',
-          assetName: issuance.assetName,
-          icon: iconData ? iconData.url : null,
-          amount: issuance.amount
+      var tx = {
+        status: 'broadcasted',
+        customData: {
+          asset: {}
         }
       };
-      self._createAndExecuteProposal(result.txHex, result.issuanceUtxo.address, customData);
+
+      txStatus.notify(tx, function () {
+        self.$scope.$emit('Local/TxProposalAction');
+      });
     });
   };
 

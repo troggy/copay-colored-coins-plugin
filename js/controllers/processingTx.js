@@ -58,7 +58,7 @@ ProcessingTxController.prototype._signAndBroadcast = function (txp, cb) {
   var self = this,
   		fc = self.profileService.focusedClient;
   self.setOngoingProcess(self.gettext('Signing transaction'));
-  fc.signTxProposal(txp, function (err, signedTx) {
+  fc.signTxProposal(txp, function (err, signedTxp) {
     self.profileService.lockFC();
     self.setOngoingProcess();
     if (err) {
@@ -66,9 +66,9 @@ ProcessingTxController.prototype._signAndBroadcast = function (txp, cb) {
       return cb(err);
     }
 
-    if (signedTx.status == 'accepted') {
+    if (signedTxp.status == 'accepted') {
       self.setOngoingProcess(self.gettext('Broadcasting transaction'));
-      fc.broadcastTxProposal(signedTx, function (err, btx, memo) {
+      fc.broadcastTxProposal(signedTxp, function (err, btx, memo) {
         self.setOngoingProcess();
         if (err) {
           err.message = self.gettext('Transaction was signed but could not be broadcasted. Please try again from home screen.') + (err.message ? ' ' + err.message : '');
@@ -79,7 +79,7 @@ ProcessingTxController.prototype._signAndBroadcast = function (txp, cb) {
       });
     } else {
       self.setOngoingProcess();
-      return cb(null, signedTx);
+      return cb(null, signedTxp);
     }
   });
 };
@@ -92,18 +92,20 @@ ProcessingTxController.prototype._createAndExecuteProposal = function (txHex, to
 
   var inputs = self._.map(tx.inputs, function (input) {
     input = input.toObject();
-    input = self.coloredCoins.txidToUTXO[input.prevTxId + ":" + input.outputIndex];
-    input.outputIndex = input.vout;
+    var storedInput = self.coloredCoins.txidToUTXO[input.prevTxId + ":" + input.outputIndex];
+    if (!storedInput) {
+      input.txId = input.prevTxId;
+      input.satoshis = 0;
+    } else {
+      input = storedInput;
+    }
     return input;
   });
 
-  // drop change output provided by CC API. We want change output to be added by BWS in according with wallet's
-  // fee settings
   var outputs = self._.chain(tx.outputs)
       .map(function (o) {
         return { script: o.script.toString(), amount: o.satoshis };
       })
-      .dropRight()
       .value();
 
   // for Copay to show recipient properly
@@ -120,6 +122,7 @@ ProcessingTxController.prototype._createAndExecuteProposal = function (txHex, to
       message: '',
       payProUrl: null,
       feePerKb: feePerKb,
+      fee: 1000,
       customData: customData
     }, function (err, txp) {
       if (err) {

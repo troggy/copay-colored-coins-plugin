@@ -25,6 +25,7 @@
   ],
   "dependencies": {
     "aws-sdk": "^2.1.44",
+    "colu": "^0.8.7",
     "formidable": "^1.0.17",
     "http-proxy": "~1.11.1"
   },

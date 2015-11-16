@@ -61,7 +61,8 @@ var AssetTransferController = function ($rootScope, $scope, $modalInstance, $tim
           icon: $scope.asset.icon,
           utxo: lodash.pick($scope.asset.utxo, ['txid', 'index']),
           amount: transfer._amount
-        }
+        },
+        financeTxId: result.financeTxid
       };
       self._createAndExecuteProposal(result.txHex, transfer._address, customData);
     });

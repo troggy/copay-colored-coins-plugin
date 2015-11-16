@@ -20,7 +20,8 @@ module.exports = function (grunt) {
           './js/services/*.js',
           './js/directives/*.js',
           './dist/templates.js',
-          './bower_components/ng-file-upload/ng-file-upload.js'
+          './bower_components/ng-file-upload/ng-file-upload.js',
+          'node_modules/colu/client/colu.client.js'
         ],
         dest: './dist/copayColoredCoins.js'
       }
